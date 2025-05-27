@@ -74,7 +74,7 @@ def generate_flow_rois(obj_rois, ratios, img_w, img_h):
     new_rois[:, 0:2] = obj_rois[:, 0:2] - flow_rois[:, 0:2]
     new_rois[:, 2:4] = obj_rois[:, 2:4] - flow_rois[:, 0:2]
 
-    return flow_rois.astype(np.int), new_rois
+    return flow_rois.astype(int), new_rois
 
 
 class CropLoader(Dataset):
