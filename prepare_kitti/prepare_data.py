@@ -222,7 +222,7 @@ class GroundPlane:
         plt.show()
         plt.close("all")
 
-    def get_label_strings(self, idx):
+    def get_label_strings(self, idx, combined_idx):
         velocity = self.track_velocity[idx]
         flow = self.flowlets[idx]
         bb = self.track_bb[idx]
@@ -311,19 +311,19 @@ class GroundPlane:
 
             frame_id = idx
             oxt = self.dataset.oxts[idx].packet
-            # Convert ground truth velocities from m/s to m/0.1s
-            gt_vf, gt_vl, gt_vu = oxt.vf * 0.1, oxt.vl * 0.1, oxt.vu * 0.1
-            # Compute ego velocity magnitude and direction (sign)
+            gt_vf, gt_vl, gt_vu = oxt.vf , oxt.vl , oxt.vu
+            # get ego velocity magnitude and direction (sign)
             gt_ego_velocity = np.linalg.norm([gt_vf, gt_vl, gt_vu])
-            # Use the sign of gt_vf (forward velocity) for direction
+            # use the sign of gt_vf (forward velocity) for direction
             if gt_vf < 0:
                 gt_ego_velocity = -gt_ego_velocity
             for i in range(len(flow)):
-                # v_z = round(flow[i][2][2], 4)
-                object_speed = np.linalg.norm(flow[i][2])
+                # multiply by 10 to convert from m/0.1s to m/s
+                object_speed = np.linalg.norm(flow[i][2]) * 10
                 if flow[i][2][2] < 0:
                     object_speed = -object_speed
-                # print(f"Object speed: {object_speed}, GT velocity: {gt_ego_velocity}")
+                # obj_velocity = np.linalg.norm([v_x, v_y, v_z]) * 10
+                # print(f"Object speed: {object_speed}, GT velocity: {gt_ego_velocity}, Object velocity: {obj_velocity}")
                 absolute_vz = gt_ego_velocity + object_speed
                 if absolute_vz < 0:
                     speeds_towards.append(object_speed)
@@ -345,12 +345,12 @@ class GroundPlane:
             })
             json_labels[-1]["avgSpeedTowards"] = avg_speed_towards
             logging.info(
-                json.dumps(dict(frameId=frame_id, avgSpeedTowards=avg_speed_towards))
+                json.dumps(dict(frameId=combined_idx, avgSpeedTowards=avg_speed_towards))
             )
         if speeds_away:
             avg_speed_away = abs(round(np.mean(speeds_away) * 36 / 10, 2))
             logging.info(
-                json.dumps(dict(frameId=frame_id, avgSpeedAway=avg_speed_away))
+                json.dumps(dict(frameId=combined_idx, avgSpeedAway=avg_speed_away))
             )
             json_labels.append({
                 "velocity": [gt_vf, gt_vl],
@@ -366,8 +366,8 @@ class GroundPlane:
             json_labels[-1]["avgSpeedAway"] = avg_speed_away
         return np.array(labels), json_labels
 
-    def label_image_show_and_save(self, save_dir, visual_dir, idx):
-        out_labels = self.get_label_strings(idx)
+    def label_image_show_and_save(self, save_dir, visual_dir, idx, combined_idx):
+        out_labels = self.get_label_strings(idx, combined_idx)
         if len(out_labels) == 0 or len(out_labels[0]) == 0:
             print("no cars in image %d" % idx)
             return 0
@@ -390,7 +390,7 @@ class GroundPlane:
         return 1
 
 def create_video():
-    drive_id = ["0091"]
+    drive_id = ["0023", "0091"]
 
     if os.path.exists("../data/flowlet_pair.txt"):
         os.remove("../data/flowlet_pair.txt")
@@ -400,33 +400,49 @@ def create_video():
     # b = test.get_label_strings(5)
     stamps = test.dataset.timestamps
 
+    # Collect all image paths and corresponding timestamps from all drives
+    all_image_paths = []
+    all_timestamps = []
     for drive in drive_id:
-        # Convert images to video using timestamps for frame timing
         image_dir = os.path.join(basedir, date, f"{date}_drive_{drive}_sync", "image_02/data")
         images = sorted([img for img in os.listdir(image_dir) if img.endswith(".png")])
-        if images:
-            # Sort images by timestamp order
-            images_sorted = sorted(images, key=lambda x: int(os.path.splitext(x)[0]))
-            first_image_path = os.path.join(image_dir, images_sorted[0])
-            frame = cv2.imread(first_image_path)
-            height, width, layers = frame.shape
-            video_path = os.path.join(basedir, date, f"{date}_drive_{drive}_sync", "output_video.mp4")
+        # Sort images by frame index (assumes filenames are frame numbers)
+        images_sorted = sorted(images, key=lambda x: int(os.path.splitext(x)[0]))
+        for idx, img_name in enumerate(images_sorted):
+            img_path = os.path.join(image_dir, img_name)
+            all_image_paths.append(img_path)
+            # Get timestamp for this frame
+            # For each drive, reload dataset to get timestamps
+            dataset = pykitti.pykitti.raw(basedir, date, drive)
+            if idx < len(dataset.timestamps):
+                all_timestamps.append(dataset.timestamps[idx].timestamp())
+            else:
+                # Fallback: use previous timestamp + 0.1s
+                all_timestamps.append(all_timestamps[-1] + 0.1 if all_timestamps else 0)
 
-            # Calculate frame durations in seconds
-            frame_times = [ts.timestamp() for ts in stamps]
-            frame_intervals = [frame_times[i+1] - frame_times[i] for i in range(len(frame_times)-1)]
-            # Use median interval as fallback fps
-            median_interval = np.median(frame_intervals) if frame_intervals else 0.1
-            fps = 1.0 / median_interval if median_interval > 0 else 10
-            print(f"Calculated FPS: {fps}")
-            out = cv2.VideoWriter(video_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (width, height))
+    if all_image_paths:
+        # Sort all frames by timestamp
+        sorted_items = sorted(zip(all_image_paths, all_timestamps), key=lambda x: x[1])
+        sorted_image_paths = [item[0] for item in sorted_items]
+        sorted_timestamps = [item[1] for item in sorted_items]
 
-            for idx, img_name in enumerate(images_sorted):
-                img_path = os.path.join(image_dir, img_name)
-                frame = cv2.imread(img_path)
-                out.write(frame)
-            out.release()
-            print(f"Video saved to {video_path}")
+        # Read first frame to get size
+        first_frame = cv2.imread(sorted_image_paths[0])
+        height, width, layers = first_frame.shape
+        video_path = os.path.join(basedir, date, "video.mp4")
+
+        # Calculate frame intervals and fps
+        frame_intervals = [sorted_timestamps[i+1] - sorted_timestamps[i] for i in range(len(sorted_timestamps)-1)]
+        median_interval = np.median(frame_intervals) if frame_intervals else 0.1
+        fps = 1.0 / median_interval if median_interval > 0 else 10
+        print(f"Calculated FPS: {fps}")
+        out = cv2.VideoWriter(video_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (width, height))
+
+        for img_path in sorted_image_paths:
+            frame = cv2.imread(img_path)
+            out.write(frame)
+        out.release()
+        print(f"Combined video saved to {video_path}")
     f.close()
 
 def generate_raw():
@@ -436,7 +452,7 @@ def generate_raw():
     #             "0046", "0048", "0051", "0052", "0056", "0057", "0059",
     #             "0060", "0061", "0064", "0070", "0079", "0084", "0086",
     #             "0087", "0091"]
-    drive_id = ["0091"]
+    drive_id = ["0023", "0091"]
     # drive_id = ["0001", "0002", "0011", "0013", "0014",
     #             "0015", "0017", "0018", "0019", "0020", "0022", "0023",
     #             "0027", "0028", "0029", "0035", "0036", "0039",
@@ -451,7 +467,7 @@ def generate_raw():
 
     # test = GroundPlane(basedir, date, drive_id[0])
     # b = test.get_label_strings(5)
-
+    combined_frame_index = 0
     for drive in drive_id:
         dataset_dir = basedir + "/" + date + "/" + date + "_drive_" + drive + "_sync"
         relative_dir = date + "/" + date + "_drive_" + drive + "_sync"
@@ -472,12 +488,13 @@ def generate_raw():
 
         test = GroundPlane(basedir, date, drive)
         for i in range(0, test.frames):
-            b = test.label_image_show_and_save(label_dir, visual_dir, i)
+            combined_frame_index += 1
+            b = test.label_image_show_and_save(label_dir, visual_dir, i, combined_frame_index)
             if b:
                 # f.write("%s/%010d.png %s/%010d.png %s/%010d.json\n" %
                 #         (image_relative_dir, i-1, image_relative_dir, i, label_relative_dir, i))
                 f.write("%s/%010d.png %s/%010d.png\n" %
-                        (image_relative_dir, i-1, image_relative_dir, i))
+                        (image_relative_dir, i-1, image_relative_dir, combined_frame_index))
     f.close()
 
 
@@ -515,8 +532,8 @@ def separate_by_id():
     # road_id = set(list(["0015", "0027", "0028", "0029", "0032", "0052", "0070"]))
 
     # test_id = set(list(["0005", "0048", "0013", "0017", "0057", "0023", "0086", "0028"]))
-    drive_id = ["0091"]
-    city_id = set(list(["0091"]))
+    drive_id = ["0023", "0091"]
+    city_id = set(list(["0023", "0091"]))
     residential_id = set(list([]))
     road_id = set(list([]))
     test_id = set(list([]))
@@ -645,7 +662,7 @@ def check_file():
     #             "0046", "0048", "0051", "0052", "0056", "0057", "0059",
     #             "0060", "0061", "0064", "0070", "0079", "0084", "0086",
     #             "0087", "0091"]
-    drive_id = ["0091"]
+    drive_id = ["0023", "0091"]
 
     for drive in drive_id:
         dataset_dir = basedir + "/" + date + "/" + date + "_drive_" + drive + "_sync"
@@ -653,10 +670,10 @@ def check_file():
         files = os.listdir(label_dir)
         if len(files) < 5:
             print(drive)
-    error_id = ['0091']
+    error_id = ['0023']
     return
 
 if __name__ == '__main__':
     # separate_motion()
-    # create_video()
+    create_video()
     generate_raw()
