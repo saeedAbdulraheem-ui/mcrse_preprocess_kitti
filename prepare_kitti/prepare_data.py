@@ -18,8 +18,10 @@ import pykitti.pykitti
 from PIL import ImageDraw
 import cv2
 
-basedir = '/home/said/school/project/practice/preprocess/mono_velocity/prepare_kitti/raw_dat'
-date = '2011_09_26'
+basedir = (
+    "/home/said/school/project/practice/preprocess/mono_velocity/prepare_kitti/raw_dat"
+)
+date = "2011_09_26"
 
 reload(logging)
 
@@ -31,10 +33,15 @@ now_str = datetime.now().strftime("%Y%m%d-%H%M%S")
 log_name = f"logs/{now_str}_run_{run_id}.log"
 os.makedirs(os.path.dirname(log_name), exist_ok=True)
 
-logging.basicConfig(
-    filename=f"logs/{now_str}_run_{run_id}.log", level=logging.DEBUG
+logging.basicConfig(filename=f"logs/{now_str}_run_{run_id}.log", level=logging.DEBUG)
+logging.info(
+    "Run No.: %s, Video: %s",
+    str(run_id),
+    str(
+        "/home/said/school/project/practice/preprocess/mono_velocity/prepare_kitti/raw_dat/2011_09_26/2011_09_26_drive_0091_sync/flowlet_02"
+    ),
 )
-logging.info("Run No.: %s, Video: %s", str(run_id), str("/home/said/school/project/practice/preprocess/mono_velocity/prepare_kitti/raw_dat/2011_09_26/2011_09_26_drive_0091_sync/flowlet_02"))
+
 
 def takeSecond(elem):
     return elem[1]
@@ -44,9 +51,16 @@ class GroundPlane:
     def __init__(self, basedir, date, drive):
         self.dataset = pykitti.pykitti.raw(basedir, date, drive)
         self.frames = len(self.dataset.timestamps)
-        tracklet_path = '{}/{}/{}_drive_{}_sync/tracklet_labels.xml'.format(basedir, date, date, drive)
-        self.tracklets, self.tracklet_rects, self.tracklet_types, self.track_id, self.track_center \
-            = self.load_tracklets_for_frames(tracklet_path)
+        tracklet_path = "{}/{}/{}_drive_{}_sync/tracklet_labels.xml".format(
+            basedir, date, date, drive
+        )
+        (
+            self.tracklets,
+            self.tracklet_rects,
+            self.tracklet_types,
+            self.track_id,
+            self.track_center,
+        ) = self.load_tracklets_for_frames(tracklet_path)
         self.track_velocity, self.flowlets = self.load_car_velocity()
         self.track_bb = self.load_car_bb()
 
@@ -76,37 +90,76 @@ class GroundPlane:
             # this part is inspired by kitti object development kit matlab code: computeBox3D
             h, w, l = tracklet.size
             # in velodyne coordinates around zero point and without orientation yet
-            trackletBox = np.array([
-                [-l / 2, -l / 2, l / 2, l / 2, -l / 2, -l / 2, l / 2, l / 2],
-                [w / 2, -w / 2, -w / 2, w / 2, w / 2, -w / 2, -w / 2, w / 2],
-                [0.0, 0.0, 0.0, 0.0, h, h, h, h]
-            ])
+            trackletBox = np.array(
+                [
+                    [-l / 2, -l / 2, l / 2, l / 2, -l / 2, -l / 2, l / 2, l / 2],
+                    [w / 2, -w / 2, -w / 2, w / 2, w / 2, -w / 2, -w / 2, w / 2],
+                    [0.0, 0.0, 0.0, 0.0, h, h, h, h],
+                ]
+            )
             # loop over all data in tracklet
-            for translation, rotation, state, occlusion, truncation, amtOcclusion, amtBorders, absoluteFrameNumber in tracklet:
+            for (
+                translation,
+                rotation,
+                state,
+                occlusion,
+                truncation,
+                amtOcclusion,
+                amtBorders,
+                absoluteFrameNumber,
+            ) in tracklet:
                 # determine if object is in the image; otherwise continue
-                if truncation not in (xmlParser.TRUNC_IN_IMAGE, xmlParser.TRUNC_TRUNCATED):
+                if truncation not in (
+                    xmlParser.TRUNC_IN_IMAGE,
+                    xmlParser.TRUNC_TRUNCATED,
+                ):
                     continue
                 # re-create 3D bounding box in velodyne coordinate system
                 yaw = rotation[2]  # other rotations are supposedly 0
-                assert np.abs(rotation[:2]).sum() == 0, 'object rotations other than yaw given!'
-                rotMat = np.array([
-                    [np.cos(yaw), -np.sin(yaw), 0.0],
-                    [np.sin(yaw), np.cos(yaw), 0.0],
-                    [0.0, 0.0, 1.0]
-                ])
-                cornerPosInVelo = np.dot(rotMat, trackletBox) + np.tile(translation, (8, 1)).T
+                assert (
+                    np.abs(rotation[:2]).sum() == 0
+                ), "object rotations other than yaw given!"
+                rotMat = np.array(
+                    [
+                        [np.cos(yaw), -np.sin(yaw), 0.0],
+                        [np.sin(yaw), np.cos(yaw), 0.0],
+                        [0.0, 0.0, 1.0],
+                    ]
+                )
+                cornerPosInVelo = (
+                    np.dot(rotMat, trackletBox) + np.tile(translation, (8, 1)).T
+                )
                 cam2_velo = self.dataset.calib.T_cam2_velo
-                cornerPosInCam2 = np.dot(cam2_velo[0:3, 0:3], cornerPosInVelo) + np.tile(cam2_velo[0:3, 3], (8, 1)).T
-                frame_tracklets[absoluteFrameNumber] = frame_tracklets[absoluteFrameNumber] + [cornerPosInCam2]
+                cornerPosInCam2 = (
+                    np.dot(cam2_velo[0:3, 0:3], cornerPosInVelo)
+                    + np.tile(cam2_velo[0:3, 3], (8, 1)).T
+                )
+                frame_tracklets[absoluteFrameNumber] = frame_tracklets[
+                    absoluteFrameNumber
+                ] + [cornerPosInCam2]
 
-                frame_trackid[absoluteFrameNumber] = frame_trackid[absoluteFrameNumber] + [i]
+                frame_trackid[absoluteFrameNumber] = frame_trackid[
+                    absoluteFrameNumber
+                ] + [i]
 
-                locationInCam2 = np.dot(cam2_velo[0:3, 0:3], translation) + cam2_velo[0:3, 3]
-                frame_track_centers[absoluteFrameNumber] = frame_track_centers[absoluteFrameNumber] + [locationInCam2]
+                locationInCam2 = (
+                    np.dot(cam2_velo[0:3, 0:3], translation) + cam2_velo[0:3, 3]
+                )
+                frame_track_centers[absoluteFrameNumber] = frame_track_centers[
+                    absoluteFrameNumber
+                ] + [locationInCam2]
 
-                frame_tracklets_types[absoluteFrameNumber] = frame_tracklets_types[absoluteFrameNumber] + [tracklet.objectType]
+                frame_tracklets_types[absoluteFrameNumber] = frame_tracklets_types[
+                    absoluteFrameNumber
+                ] + [tracklet.objectType]
 
-        return (tracklets, frame_tracklets, frame_tracklets_types, frame_trackid, frame_track_centers)
+        return (
+            tracklets,
+            frame_tracklets,
+            frame_tracklets_types,
+            frame_trackid,
+            frame_track_centers,
+        )
 
     def get_velocity(self, location1, location2, T21):
         l21 = np.dot(T21[0:3, 0:3], location1.reshape(-1)) + T21[0:3, 3]
@@ -127,7 +180,12 @@ class GroundPlane:
             for rect in frame:
                 rect_homo = rect / rect[2, :]
                 pixel = np.dot(cam2_in, rect_homo)
-                bb = [min(pixel[0, :]), min(pixel[1, :]), max(pixel[0, :]), max(pixel[1, :])]
+                bb = [
+                    min(pixel[0, :]),
+                    min(pixel[1, :]),
+                    max(pixel[0, :]),
+                    max(pixel[1, :]),
+                ]
                 frame_bb_incam2[i] = frame_bb_incam2[i] + [bb]
         return frame_bb_incam2
 
@@ -139,33 +197,38 @@ class GroundPlane:
             frame_velocity[i] = []
             frame_flowlets[i] = []
 
-        for i in range(1,self.frames):
+        for i in range(1, self.frames):
             obj_num = len(self.track_id[i])
             if obj_num == 0:
                 continue
             else:
                 for j in range(0, obj_num):
                     obj_idx = self.track_id[i][j]
-                    if obj_idx not in self.track_id[i-1]:
+                    if obj_idx not in self.track_id[i - 1]:
                         continue
                     else:
-                        pre_j = self.track_id[i-1].index(obj_idx)
+                        pre_j = self.track_id[i - 1].index(obj_idx)
                         # allow objects other than vehicles.
-                        # if self.tracklet_types[i-1][pre_j] != "Bus"and self.tracklet_types[i-1][pre_j] != "Car" \
-                        #         and self.tracklet_types[i-1][pre_j] != "Van":
-                        #     continue
-                        T21 = self.get_cam2_motion(i-1, i)
+                        if (
+                            self.tracklet_types[i - 1][pre_j] != "Bus"
+                            and self.tracklet_types[i - 1][pre_j] != "Car"
+                            and self.tracklet_types[i - 1][pre_j] != "Van"
+                        ):
+                            continue
+                        T21 = self.get_cam2_motion(i - 1, i)
                         if np.abs(T21[1, 3]) > 0.1:
                             T21[1, 3] = 0
-                        X1 = self.track_center[i-1][pre_j]
+                        X1 = self.track_center[i - 1][pre_j]
                         X2 = self.track_center[i][j]
                         # TODO: velocity definition
                         velocity = self.get_velocity(X1, X2, T21)
                         thresh = np.linalg.norm(velocity)
                         if thresh < 0.275:
                             velocity = [0, 0, 0]
-                        frame_velocity[i] = frame_velocity[i] + [[obj_idx, X2, velocity]]
-                        frame_flowlets[i] = frame_flowlets[i] + [[obj_idx, X2, X2-X1]]
+                        frame_velocity[i] = frame_velocity[i] + [
+                            [obj_idx, X2, velocity]
+                        ]
+                        frame_flowlets[i] = frame_flowlets[i] + [[obj_idx, X2, X2 - X1]]
         return frame_velocity, frame_flowlets
 
     def get_cam2_motion(self, target_idx, source_idx):
@@ -173,7 +236,9 @@ class GroundPlane:
         T_cam1_imu1 = self.dataset.calib.T_cam2_imu
         T_w_imu0 = self.dataset.oxts[target_idx].T_w_imu
         T_imu1_w = np.linalg.inv(self.dataset.oxts[source_idx].T_w_imu)
-        T_cam0_cam1 = np.dot(T_cam1_imu1, np.dot(T_imu1_w, np.dot(T_w_imu0, T_imu0_cam0)))
+        T_cam0_cam1 = np.dot(
+            T_cam1_imu1, np.dot(T_imu1_w, np.dot(T_w_imu0, T_imu0_cam0))
+        )
         return T_cam0_cam1
 
     def gt_visualization(self, idx, b_save=False):
@@ -191,8 +256,10 @@ class GroundPlane:
 
         fig = plt.figure(dpi=360)
         ax = fig.add_subplot(111)
-        plt.title('labeled image')
-        ax.scatter(x, z, c='g', marker='.', s=0.3, linewidth=0, alpha=1)  # , cmap='spectral')
+        plt.title("labeled image")
+        ax.scatter(
+            x, z, c="g", marker=".", s=0.3, linewidth=0, alpha=1
+        )  # , cmap='spectral')
 
         center = self.track_center[idx]
         id = self.track_id[idx]
@@ -207,16 +274,24 @@ class GroundPlane:
             j = id.index(id_i)
             obj_o = center[j]
 
-            plt.arrow(obj_o[0], obj_o[2], arrow_x, arrow_z,
-                      length_includes_head=True,
-                      head_width=0.25, head_length=0.5, fc='r', ec='b')
+            plt.arrow(
+                obj_o[0],
+                obj_o[2],
+                arrow_x,
+                arrow_z,
+                length_includes_head=True,
+                head_width=0.25,
+                head_length=0.5,
+                fc="r",
+                ec="b",
+            )
             plt.text(obj_o[0], obj_o[2], "%.1f m/0.1s" % length)
 
         ax.set_xlim(-40, 40)
         ax.set_ylim(1, 81)
-        ax.set_aspect('equal')
-        ax.set_xlabel('X')
-        ax.set_ylabel('Z')
+        ax.set_aspect("equal")
+        ax.set_xlabel("X")
+        ax.set_ylabel("Z")
         if b_save:
             plt.savefig("result.png" % i)
         plt.show()
@@ -234,7 +309,7 @@ class GroundPlane:
         image = self.dataset.get_cam2(idx)
         labels = []
         json_labels = []
-        T = self.get_cam2_motion(idx, idx-1)
+        T = self.get_cam2_motion(idx, idx - 1)
         cam2_in = self.dataset.calib.K_cam2
         speeds_towards = []
         speeds_away = []
@@ -288,17 +363,39 @@ class GroundPlane:
             v_z = velocity[i][2][2]
             rot = np.arctan2(v_z, v_x) * 180 / np.pi
 
-            homo_c = np.array([x/z, y/z, 1])
+            homo_c = np.array([x / z, y / z, 1])
             pixel_cam2 = np.dot(cam2_in, homo_c)
             u = pixel_cam2[0]
             v = pixel_cam2[1]
 
             h, w, l = self.tracklets[obj_idx].size
-            a = [u, v, z, h, w, l, v_x, v_y, v_z, b_left, b_top, b_right, b_bottom,
-                 T[0, 0], T[0, 1], T[0, 2], T[0, 3],
-                 T[1, 0], T[1, 1], T[1, 2], T[1, 3],
-                 T[2, 0], T[2, 1], T[2, 2], T[2, 3]
-                 ]
+            a = [
+                u,
+                v,
+                z,
+                h,
+                w,
+                l,
+                v_x,
+                v_y,
+                v_z,
+                b_left,
+                b_top,
+                b_right,
+                b_bottom,
+                T[0, 0],
+                T[0, 1],
+                T[0, 2],
+                T[0, 3],
+                T[1, 0],
+                T[1, 1],
+                T[1, 2],
+                T[1, 3],
+                T[2, 0],
+                T[2, 1],
+                T[2, 2],
+                T[2, 3],
+            ]
             labels.append(a)
 
             # f_x = flow[i][2][0]
@@ -311,7 +408,7 @@ class GroundPlane:
 
             frame_id = idx
             oxt = self.dataset.oxts[idx].packet
-            gt_vf, gt_vl, gt_vu = oxt.vf , oxt.vl , oxt.vu
+            gt_vf, gt_vl, gt_vu = oxt.vf, oxt.vl, oxt.vu
             # get ego velocity magnitude and direction (sign)
             gt_ego_velocity = np.linalg.norm([gt_vf, gt_vl, gt_vu])
             # use the sign of gt_vf (forward velocity) for direction
@@ -331,38 +428,46 @@ class GroundPlane:
                     speeds_away.append(object_speed)
 
         if speeds_towards:
-            avg_speed_towards = abs(round(np.mean(speeds_towards) * 36 / 10, 2))  # convert m/0.1s to km/h
-            json_labels.append({
-                "velocity": [gt_vf, gt_vl],
-                "bbox": {
-                    "top": bi_top,
-                    "right": bi_right,
-                    "left": bi_left,
-                    "bottom": bi_bottom
-                },
-                "position": [z, x],
-                "frameId": frame_id
-            })
+            avg_speed_towards = abs(
+                round(np.mean(speeds_towards) * 36 / 10, 2)
+            )  # convert m/0.1s to km/h
+            json_labels.append(
+                {
+                    "velocity": [gt_vf, gt_vl],
+                    "bbox": {
+                        "top": bi_top,
+                        "right": bi_right,
+                        "left": bi_left,
+                        "bottom": bi_bottom,
+                    },
+                    "position": [z, x],
+                    "frameId": frame_id,
+                }
+            )
             json_labels[-1]["avgSpeedTowards"] = avg_speed_towards
             logging.info(
-                json.dumps(dict(frameId=combined_idx, avgSpeedTowards=avg_speed_towards))
+                json.dumps(
+                    dict(frameId=combined_idx, avgSpeedTowards=avg_speed_towards)
+                )
             )
         if speeds_away:
             avg_speed_away = abs(round(np.mean(speeds_away) * 36 / 10, 2))
             logging.info(
                 json.dumps(dict(frameId=combined_idx, avgSpeedAway=avg_speed_away))
             )
-            json_labels.append({
-                "velocity": [gt_vf, gt_vl],
-                "bbox": {
-                    "top": bi_top,
-                    "right": bi_right,
-                    "left": bi_left,
-                    "bottom": bi_bottom
-                },
-                "position": [z, x],
-                "frameId": frame_id
-            })
+            json_labels.append(
+                {
+                    "velocity": [gt_vf, gt_vl],
+                    "bbox": {
+                        "top": bi_top,
+                        "right": bi_right,
+                        "left": bi_left,
+                        "bottom": bi_bottom,
+                    },
+                    "position": [z, x],
+                    "frameId": frame_id,
+                }
+            )
             json_labels[-1]["avgSpeedAway"] = avg_speed_away
         return np.array(labels), json_labels
 
@@ -389,8 +494,22 @@ class GroundPlane:
         # image.save("%s/%010d.png" % (visual_dir, idx))
         return 1
 
+
 def create_video():
-    drive_id = ["0023", "0091"]
+    # drive_id = ["0091"]
+    drive_id = [
+        "0005",
+        "0009",
+        "0011",
+        "0013",
+        "0014",
+        "0018",
+        "0023",
+        "0051",
+        "0056",
+        "0057",
+        "0091",
+    ]
 
     if os.path.exists("../data/flowlet_pair.txt"):
         os.remove("../data/flowlet_pair.txt")
@@ -404,7 +523,9 @@ def create_video():
     all_image_paths = []
     all_timestamps = []
     for drive in drive_id:
-        image_dir = os.path.join(basedir, date, f"{date}_drive_{drive}_sync", "image_02/data")
+        image_dir = os.path.join(
+            basedir, date, f"{date}_drive_{drive}_sync", "image_02/data"
+        )
         images = sorted([img for img in os.listdir(image_dir) if img.endswith(".png")])
         # Sort images by frame index (assumes filenames are frame numbers)
         images_sorted = sorted(images, key=lambda x: int(os.path.splitext(x)[0]))
@@ -432,11 +553,16 @@ def create_video():
         video_path = os.path.join(basedir, date, "video.mp4")
 
         # Calculate frame intervals and fps
-        frame_intervals = [sorted_timestamps[i+1] - sorted_timestamps[i] for i in range(len(sorted_timestamps)-1)]
+        frame_intervals = [
+            sorted_timestamps[i + 1] - sorted_timestamps[i]
+            for i in range(len(sorted_timestamps) - 1)
+        ]
         median_interval = np.median(frame_intervals) if frame_intervals else 0.1
         fps = 1.0 / median_interval if median_interval > 0 else 10
         print(f"Calculated FPS: {fps}")
-        out = cv2.VideoWriter(video_path, cv2.VideoWriter_fourcc(*'mp4v'), fps, (width, height))
+        out = cv2.VideoWriter(
+            video_path, cv2.VideoWriter_fourcc(*"mp4v"), fps, (width, height)
+        )
 
         for img_path in sorted_image_paths:
             frame = cv2.imread(img_path)
@@ -445,21 +571,21 @@ def create_video():
         print(f"Combined video saved to {video_path}")
     f.close()
 
-def generate_raw():
-    # drive_id = ["0001", "0002", "0005", "0009", "0011", "0013", "0014",
-    #             "0015", "0017", "0018", "0019", "0020", "0022", "0023",
-    #             "0027", "0028", "0029", "0032", "0035", "0036", "0039",
-    #             "0046", "0048", "0051", "0052", "0056", "0057", "0059",
-    #             "0060", "0061", "0064", "0070", "0079", "0084", "0086",
-    #             "0087", "0091"]
-    drive_id = ["0023", "0091"]
-    # drive_id = ["0001", "0002", "0011", "0013", "0014",
-    #             "0015", "0017", "0018", "0019", "0020", "0022", "0023",
-    #             "0027", "0028", "0029", "0035", "0036", "0039",
-    #             "0046", "0052", "0056", "0057", "0059",
-    #             "0060", "0061", "0064", "0070", "0079", "0084", "0086", "0091", "0093"]
 
-    # drive_id = ["0005"]
+def generate_raw():
+    drive_id = [
+        "0005",
+        "0009",
+        "0011",
+        "0013",
+        "0014",
+        "0018",
+        "0023",
+        "0051",
+        "0056",
+        "0057",
+        "0091",
+    ]
 
     if os.path.exists("../data/flowlet_pair.txt"):
         os.remove("../data/flowlet_pair.txt")
@@ -489,12 +615,21 @@ def generate_raw():
         test = GroundPlane(basedir, date, drive)
         for i in range(0, test.frames):
             combined_frame_index += 1
-            b = test.label_image_show_and_save(label_dir, visual_dir, i, combined_frame_index)
+            b = test.label_image_show_and_save(
+                label_dir, visual_dir, i, combined_frame_index
+            )
             if b:
                 # f.write("%s/%010d.png %s/%010d.png %s/%010d.json\n" %
                 #         (image_relative_dir, i-1, image_relative_dir, i, label_relative_dir, i))
-                f.write("%s/%010d.png %s/%010d.png\n" %
-                        (image_relative_dir, i-1, image_relative_dir, combined_frame_index))
+                f.write(
+                    "%s/%010d.png %s/%010d.png\n"
+                    % (
+                        image_relative_dir,
+                        i - 1,
+                        image_relative_dir,
+                        combined_frame_index,
+                    )
+                )
     f.close()
 
 
@@ -505,8 +640,9 @@ def write_id_data(id, file_dir):
     for line in f:
         line = line.strip("\n")
         fields = line.split(" ")
-        dicts.append({"first_image": fields[0], "second_image": fields[1],
-                      "velocity": fields[2]})
+        dicts.append(
+            {"first_image": fields[0], "second_image": fields[1], "velocity": fields[2]}
+        )
     f.close()
 
     for x in dicts:
@@ -521,10 +657,38 @@ def separate_by_id():
     #             "0046", "0048", "0051", "0052", "0056", "0057", "0059",
     #             "0060", "0061", "0064", "0070", "0079", "0084", "0086",
     #             "0087", "0091"]
+    drive_id = [
+        "0005",
+        "0009",
+        "0011",
+        "0013",
+        "0014",
+        "0018",
+        "0023",
+        "0051",
+        "0056",
+        "0057",
+        "0091",
+    ]
 
     # city_id = set(list(["0001", "0002", "0005", "0009", "0011", "0013", "0014",
     #                     "0017", "0018", "0048", "0051", "0056", "0057", "0059",
     #                     "0060", "0084", "0091"]))
+    city_id = set(
+        list[
+            "0005",
+            "0009",
+            "0011",
+            "0013",
+            "0014",
+            "0018",
+            "0023",
+            "0051",
+            "0056",
+            "0057",
+            "0091",
+        ]
+    )
 
     # residential_id = set(list(["0019", "0020", "0022", "0023", "0035", "0036", "0039",
     #                            "0046", "0061", "0064", "0079", "0086", "0087"]))
@@ -532,8 +696,7 @@ def separate_by_id():
     # road_id = set(list(["0015", "0027", "0028", "0029", "0032", "0052", "0070"]))
 
     # test_id = set(list(["0005", "0048", "0013", "0017", "0057", "0023", "0086", "0028"]))
-    drive_id = ["0023", "0091"]
-    city_id = set(list(["0023", "0091"]))
+
     residential_id = set(list([]))
     road_id = set(list([]))
     test_id = set(list([]))
@@ -574,8 +737,9 @@ def separate_train():
     for line in f:
         line = line.strip("\n")
         fields = line.split(" ")
-        dicts.append({"first_image": fields[0], "second_image": fields[1],
-                      "velocity": fields[2]})
+        dicts.append(
+            {"first_image": fields[0], "second_image": fields[1], "velocity": fields[2]}
+        )
     f.close()
 
     # for x in dicts:
@@ -614,7 +778,9 @@ def separate_train():
         os.remove("velocity_train.txt")
     f_train = open("velocity_train.txt", "a")
     for data in train_dicts:
-        f_train.write("%s %s %s\n" % (data["first_image"], data["second_image"], data["velocity"]))
+        f_train.write(
+            "%s %s %s\n" % (data["first_image"], data["second_image"], data["velocity"])
+        )
     f_train.close()
 
     # if os.path.exists("velocity_test.txt"):
@@ -628,19 +794,22 @@ def separate_train():
         os.remove("velocity_valid.txt")
     f_test = open("velocity_valid.txt", "a")
     for data in valid_dicts:
-        f_test.write("%s %s %s\n" % (data["first_image"], data["second_image"], data["velocity"]))
+        f_test.write(
+            "%s %s %s\n" % (data["first_image"], data["second_image"], data["velocity"])
+        )
     f_test.close()
 
 
 def separate_motion():
-    basedir = '/data/songzb'
+    basedir = "/data/songzb"
     dicts = []
     f = open("../data/original/v2_pair.txt", "r")
     for line in f:
         line = line.strip("\n")
         fields = line.split(" ")
-        dicts.append({"first_image": fields[0], "second_image": fields[1],
-                      "velocity": fields[2]})
+        dicts.append(
+            {"first_image": fields[0], "second_image": fields[1], "velocity": fields[2]}
+        )
     f.close()
     for i in range(len(dicts)):
         vall = np.load(basedir + "/" + dicts[i]["velocity"])
@@ -650,7 +819,14 @@ def separate_motion():
             v3 = vall[j][8]
             if v1 != 0 or v2 != 0 or v3 != 0:
                 f_test = open("../data/original/v2_only_motion.txt", "a")
-                f_test.write("%s %s %s\n" % (dicts[i]["first_image"], dicts[i]["second_image"], dicts[i]["velocity"]))
+                f_test.write(
+                    "%s %s %s\n"
+                    % (
+                        dicts[i]["first_image"],
+                        dicts[i]["second_image"],
+                        dicts[i]["velocity"],
+                    )
+                )
                 f_test.close()
                 break
 
@@ -662,7 +838,19 @@ def check_file():
     #             "0046", "0048", "0051", "0052", "0056", "0057", "0059",
     #             "0060", "0061", "0064", "0070", "0079", "0084", "0086",
     #             "0087", "0091"]
-    drive_id = ["0023", "0091"]
+    drive_id = [
+        "0005",
+        "0009",
+        "0011",
+        "0013",
+        "0014",
+        "0018",
+        "0023",
+        "0051",
+        "0056",
+        "0057",
+        "0091",
+    ]
 
     for drive in drive_id:
         dataset_dir = basedir + "/" + date + "/" + date + "_drive_" + drive + "_sync"
@@ -670,10 +858,11 @@ def check_file():
         files = os.listdir(label_dir)
         if len(files) < 5:
             print(drive)
-    error_id = ['0023']
+    error_id = []
     return
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     # separate_motion()
     create_video()
     generate_raw()
